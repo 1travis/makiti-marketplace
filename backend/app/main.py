@@ -371,10 +371,15 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
 
 @app.post("/seller/request")
 async def submit_seller_request(
-    request_data: SellerRequestCreate,
+    business_name: str = Form(...),
+    business_description: str = Form(...),
+    business_address: str = Form(...),
+    business_phone: str = Form(...),
+    document_type: str = Form(...),
+    document_file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
-    """Soumettre une demande pour devenir vendeur approuvé"""
+    """Soumettre une demande pour devenir vendeur approuvé avec upload de document"""
     db = await get_database()
     
     # Récupérer l'utilisateur
@@ -400,14 +405,39 @@ async def submit_seller_request(
             detail="Votre compte vendeur est déjà approuvé"
         )
     
+    # Vérifier le type de fichier
+    allowed_types = ["application/pdf", "image/jpeg", "image/png"]
+    if document_file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Type de fichier non supporté. Utilisez PDF, JPG ou PNG."
+        )
+    
+    # Vérifier la taille du fichier (max 5MB)
+    if document_file.size and document_file.size > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fichier trop volumineux. Taille maximale: 5MB."
+        )
+    
+    # Générer un nom de fichier unique
+    file_extension = document_file.filename.split(".")[-1]
+    unique_filename = f"seller_request_{current_user['user_id']}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{file_extension}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    
+    # Sauvegarder le fichier
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(document_file.file, buffer)
+    
     # Créer la demande
     seller_request = {
-        "business_name": request_data.business_name,
-        "business_description": request_data.business_description,
-        "business_address": request_data.business_address,
-        "business_phone": request_data.business_phone,
-        "document_url": request_data.document_url,
-        "document_type": request_data.document_type,
+        "business_name": business_name,
+        "business_description": business_description,
+        "business_address": business_address,
+        "business_phone": business_phone,
+        "document_url": f"http://localhost:8000/uploads/{unique_filename}",
+        "document_type": document_type,
+        "document_filename": unique_filename,
         "submitted_at": datetime.utcnow(),
         "reviewed_at": None,
         "reviewed_by": None,
@@ -560,7 +590,8 @@ async def process_seller_request(
 
 # ==================== ROUTES DES BOUTIQUES ====================
 
-@app.post("/shops/", response_model=ShopResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/shops", response_model=ShopResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/shops/", response_model=ShopResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_shop(shop: ShopCreate, current_user: dict = Depends(get_current_user)):
     """Créer une nouvelle boutique (vendeur uniquement)"""
     db = await get_database()
@@ -587,11 +618,13 @@ async def create_shop(shop: ShopCreate, current_user: dict = Depends(get_current
     shop_dict["created_at"] = shop_dict["updated_at"] = datetime.utcnow()
     
     # Insérer la boutique dans la base de données
+    result = await db.shops.insert_one(shop_dict)
     shop_dict["id"] = str(result.inserted_id)
     
     return shop_dict
 
-@app.get("/shops/me")
+@app.get("/shops/my-shop")
+@app.get("/shops/me", include_in_schema=False)
 async def get_my_shop(current_user: dict = Depends(get_current_user)):
     """Récupérer la boutique du vendeur connecté"""
     db = await get_database()
@@ -640,21 +673,13 @@ async def get_seller_public_profile(seller_id: str):
     # Récupérer la boutique
     shop = await db.shops.find_one({"owner_id": seller_id})
     
-    # Récupérer les produits du vendeur
+    # Récupérer uniquement les produits publiés du vendeur
     products = []
     cursor = db.products.find({"seller_id": seller_id, "status": "published"})
     async for product in cursor:
         product["id"] = str(product["_id"])
         del product["_id"]
         products.append(product)
-    
-    # Si aucun produit publié, récupérer tous les produits
-    if len(products) == 0:
-        cursor = db.products.find({"seller_id": seller_id})
-        async for product in cursor:
-            product["id"] = str(product["_id"])
-            del product["_id"]
-            products.append(product)
     
     # Récupérer les avis
     reviews = []
@@ -788,31 +813,26 @@ async def delete_seller_product(product_id: str, current_user: dict = Depends(ge
 # ==================== ROUTES PUBLIQUES PRODUITS ====================
 
 @app.get("/products")
-async def get_all_products(category: Optional[str] = None, shop_id: Optional[str] = None):
-    """Récupérer tous les produits publiés (public)"""
+async def get_all_products(category: Optional[str] = None, shop_id: Optional[str] = None, search: Optional[str] = None):
+    """Récupérer tous les produits publiés (public) - les brouillons ne sont pas visibles"""
     db = await get_database()
     
-    # Afficher les produits publiés OU tous les produits s'il n'y en a pas encore de publiés
+    # Construire la requête - afficher uniquement les produits publiés
     query = {"status": "published"}
     if category:
         query["category"] = category
     if shop_id:
         query["shop_id"] = shop_id
+    if search:
+        # Recherche par nom (insensible à la casse)
+        query["name"] = {"$regex": search, "$options": "i"}
     
     products = []
-    cursor = db.products.find(query)
+    cursor = db.products.find(query).sort("created_at", -1)
     async for product in cursor:
         product["id"] = str(product["_id"])
         del product["_id"]
         products.append(product)
-    
-    # Si aucun produit publié, afficher tous les produits (pour le développement)
-    if len(products) == 0:
-        cursor = db.products.find({} if not category else {"category": category})
-        async for product in cursor:
-            product["id"] = str(product["_id"])
-            del product["_id"]
-            products.append(product)
     
     return products
 

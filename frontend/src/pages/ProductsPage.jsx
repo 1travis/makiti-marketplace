@@ -58,7 +58,7 @@ const ProductsPage = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState(searchParams.get('category') || '');
-  const [priceRange, setPriceRange] = useState([0, 1000]);
+  const [priceRange, setPriceRange] = useState([0, 10000]);
   const [sortBy, setSortBy] = useState('newest');
   const [viewMode, setViewMode] = useState('grid');
   const [currentPage, setCurrentPage] = useState(1);
@@ -185,7 +185,7 @@ const ProductsPage = () => {
   const resetFilters = () => {
     setSearchTerm('');
     setCategoryFilter('');
-    setPriceRange([0, 1000]);
+    setPriceRange([0, 10000]);
     setSortBy('newest');
     setInStockOnly(false);
     setCurrentPage(1);
@@ -317,7 +317,7 @@ const ProductsPage = () => {
                   <Text fontWeight="semibold" mb={4}>Prix (€)</Text>
                   <RangeSlider
                     min={0}
-                    max={1000}
+                    max={10000}
                     step={10}
                     value={priceRange}
                     onChange={(val) => {

@@ -97,7 +97,7 @@ const SellerHomePage = () => {
       const orders = ordersRes.data || [];
 
       // Récupérer les produits
-      const productsRes = await api.get('/products/seller/my-products');
+      const productsRes = await api.get('/seller/products');
       const products = productsRes.data || [];
 
       // Récupérer les avis

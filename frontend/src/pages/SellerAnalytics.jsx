@@ -88,7 +88,7 @@ const SellerAnalytics = () => {
       }
       
       // Récupérer les produits
-      const productsResponse = await api.get('/products/seller/my-products');
+      const productsResponse = await api.get('/seller/products');
       setProducts(productsResponse.data || []);
       
       // Récupérer les commandes

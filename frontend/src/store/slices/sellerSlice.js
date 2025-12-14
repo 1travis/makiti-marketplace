@@ -4,9 +4,13 @@ import api from '../../api/axios';
 // Soumettre une demande vendeur
 export const submitSellerRequest = createAsyncThunk(
   'seller/submitRequest',
-  async (requestData, { rejectWithValue }) => {
+  async (formData, { rejectWithValue }) => {
     try {
-      const response = await api.post('/seller/request', requestData);
+      const response = await api.post('/seller/request', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
       return response.data;
     } catch (error) {
       const detail = error.response?.data?.detail;

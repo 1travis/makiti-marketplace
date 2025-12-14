@@ -25,9 +25,13 @@ import {
   CardHeader,
   Divider,
   Spinner,
+  InputGroup,
+  InputLeftElement,
+  Icon,
 } from '@chakra-ui/react';
 import { Formik, Form, Field } from 'formik';
 import * as Yup from 'yup';
+import { FiUpload, FiFile } from 'react-icons/fi';
 
 const validationSchema = Yup.object().shape({
   business_name: Yup.string()
@@ -43,9 +47,14 @@ const validationSchema = Yup.object().shape({
     .required('Téléphone requis'),
   document_type: Yup.string()
     .required('Type de document requis'),
-  document_url: Yup.string()
-    .url('URL invalide')
-    .required('Lien vers le document requis'),
+  document_file: Yup.mixed()
+    .required('Document requis')
+    .test('fileSize', 'Le fichier est trop volumineux (max 5MB)', (value) => {
+      return !value || (value && value.size <= 5 * 1024 * 1024);
+    })
+    .test('fileType', 'Format de fichier non supporté (PDF, JPG, PNG uniquement)', (value) => {
+      return !value || (value && ['application/pdf', 'image/jpeg', 'image/png'].includes(value.type));
+    }),
 });
 
 const SellerRequestPage = () => {
@@ -209,12 +218,26 @@ const SellerRequestPage = () => {
               business_address: '',
               business_phone: '',
               document_type: '',
-              document_url: '',
+              document_file: null,
             }}
             validationSchema={validationSchema}
             onSubmit={async (values, { setSubmitting }) => {
-              await dispatch(submitSellerRequest(values));
-              setSubmitting(false);
+              try {
+                // Créer un FormData pour l'upload du fichier
+                const formData = new FormData();
+                formData.append('business_name', values.business_name);
+                formData.append('business_description', values.business_description);
+                formData.append('business_address', values.business_address);
+                formData.append('business_phone', values.business_phone);
+                formData.append('document_type', values.document_type);
+                formData.append('document_file', values.document_file);
+
+                await dispatch(submitSellerRequest(formData));
+              } catch (error) {
+                console.error('Erreur lors de la soumission:', error);
+              } finally {
+                setSubmitting(false);
+              }
             }}
           >
             {({ errors, touched, isSubmitting }) => (
@@ -290,19 +313,43 @@ const SellerRequestPage = () => {
                     )}
                   </Field>
 
-                  <Field name="document_url">
-                    {({ field }) => (
-                      <FormControl isInvalid={errors.document_url && touched.document_url}>
-                        <FormLabel>Lien vers le document *</FormLabel>
-                        <Input
-                          {...field}
-                          placeholder="https://drive.google.com/... ou autre lien"
-                        />
+                  <Field name="document_file">
+                    {({ field, form }) => (
+                      <FormControl isInvalid={errors.document_file && touched.document_file}>
+                        <FormLabel>Document d'autorisation *</FormLabel>
+                        <InputGroup>
+                          <InputLeftElement>
+                            <Icon as={FiFile} color="gray.400" />
+                          </InputLeftElement>
+                          <Input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            onChange={(e) => {
+                              form.setFieldValue('document_file', e.currentTarget.files[0]);
+                            }}
+                            placeholder="Choisir un fichier"
+                            css={{
+                              "::file-selector-button": {
+                                height: "100%",
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                                padding: "0 16px",
+                                marginRight: "8px",
+                              }
+                            }}
+                          />
+                        </InputGroup>
+                        {field.value && (
+                          <Text fontSize="sm" color="green.600" mt={2}>
+                            Fichier sélectionné : {field.value.name} ({(field.value.size / 1024 / 1024).toFixed(2)} MB)
+                          </Text>
+                        )}
                         <Text fontSize="sm" color="gray.500" mt={1}>
-                          Uploadez votre document sur Google Drive, Dropbox ou autre service et collez le lien ici.
+                          Formats acceptés : PDF, JPG, PNG (max 5MB)
                         </Text>
-                        {errors.document_url && touched.document_url && (
-                          <Text color="red.500" fontSize="sm">{errors.document_url}</Text>
+                        {errors.document_file && touched.document_file && (
+                          <Text color="red.500" fontSize="sm">{errors.document_file}</Text>
                         )}
                       </FormControl>
                     )}
